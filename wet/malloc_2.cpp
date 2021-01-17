@@ -12,11 +12,11 @@ typedef struct MallocMetaData {
     MallocMetaData* prev;
 }MMD;
 
-MMD head = {0, false, nullptr, nullptr};
-MMD* head_p = &head;
+MMD sbrk_head = {0, false, nullptr, nullptr};
+MMD* sbrk_head_p = &sbrk_head;
 
 static MMD* find_first_available(size_t size, bool* really_available) {
-    MMD* curr = head_p;
+    MMD* curr = sbrk_head_p;
     while (curr->next != nullptr) {
         curr = curr->next;
         if (curr->is_free == false)
@@ -84,7 +84,7 @@ void* srealloc(void* oldp, size_t size) {
         return nullptr;
 
     MMD* old_mmd_p = &((MMD*)oldp)[-1];
-    if (old_mmd_p->size > size) // TODO check if also equal
+    if (old_mmd_p->size >= size)
         return oldp;
 
     void* new_adress_p = smalloc(size);
@@ -93,7 +93,7 @@ void* srealloc(void* oldp, size_t size) {
 }
 
 size_t _num_free_blocks() {
-    MMD* current = head_p->next;
+    MMD* current = sbrk_head_p->next;
     size_t counter = 0;
 
     while (current != nullptr) {
@@ -105,7 +105,7 @@ size_t _num_free_blocks() {
 }
 
 size_t _num_free_bytes() {
-    MMD* current = head_p->next;
+    MMD* current = sbrk_head_p->next;
     size_t counter = 0;
 
     while (current != nullptr) {
@@ -117,7 +117,7 @@ size_t _num_free_bytes() {
 }
 
 size_t _num_allocated_blocks() {
-    MMD* current = head_p->next;
+    MMD* current = sbrk_head_p->next;
     size_t counter = 0;
 
     while (current != nullptr) {
@@ -128,7 +128,7 @@ size_t _num_allocated_blocks() {
 }
 
 size_t _num_allocated_bytes() {
-    MMD* current = head_p->next;
+    MMD* current = sbrk_head_p->next;
     size_t counter = 0;
 
     while (current != nullptr) {
