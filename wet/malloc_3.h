@@ -1,3 +1,4 @@
+#include <unistd.h>
 
 #ifndef HW4_MALLOC_3_H
 #define HW4_MALLOC_3_H

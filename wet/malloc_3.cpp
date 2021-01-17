@@ -3,8 +3,9 @@
 #include <cstring>
 #include <cassert>
 #include <sys/mman.h>
-#include <errno.h>
+#include <string.h>
 #include <stdio.h>
+#include <linux/mman.h>
 
 
 #define MAX_SIZE pow(10, 8)
@@ -87,6 +88,7 @@ void* smalloc_helper_sbrk(size_t size){
             if (sbrk(size - first_available->size) == (void*)(-1))
                 return nullptr;
             first_available->size = size;
+            first_available->is_free = false;
             return (void*)(first_available+1);
         }
         else {
@@ -107,13 +109,15 @@ void* smalloc_helper_sbrk(size_t size){
 }
 
 void* smalloc_helper_mmap(size_t size){
-    void* meta_address = mmap(nullptr, size + sizeof(MMD),  PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0);
+
+    void* meta_address = mmap ( NULL, size + sizeof(MMD),PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS,0, 0 );
     if (meta_address == (void*)(-1))
         return nullptr;
     mmap_list_append(meta_address, size);
     void* data_address = (void*)((MMD*)meta_address + 1);
-    return data_address;
 
+    return data_address;
 }
 
 void* smalloc(size_t size) {
@@ -139,19 +143,25 @@ void* scalloc(size_t num, size_t size){
 }
 
 MMD* _sfree_adjacents_next(MMD* mmd_p) {
+    if (mmd_p->next == nullptr)
+        return mmd_p;
     if (mmd_p->next->is_free) {
         mmd_p->size += sizeof(MMD) + mmd_p->next->size;
         mmd_p->next = mmd_p->next->next;
-        mmd_p->next->prev = mmd_p; // mmd_p->next is already the one after the original next
+        if (mmd_p->next != nullptr)
+            mmd_p->next->prev = mmd_p; // mmd_p->next is already the one after the original next
     }
     return mmd_p;
 }
 
 MMD* _sfree_adjacents_prev(MMD* mmd_p) {
+    if (mmd_p->prev == sbrk_head_p)
+        return mmd_p;
     if (mmd_p->prev->is_free) {
         mmd_p->prev->size += sizeof(MMD) + mmd_p->size;
         mmd_p->prev->next = mmd_p->next;
-        mmd_p->next->prev = mmd_p->prev;
+        if (mmd_p->next != nullptr)
+            mmd_p->next->prev = mmd_p->prev;
         return mmd_p->prev;
     }
     else
@@ -217,6 +227,9 @@ void* srealloc(void* oldp, size_t size) {
     if (size == 0 || size > MAX_SIZE)
         return nullptr;
 
+    if (oldp == nullptr)
+        return smalloc(size);
+
     MMD* old_mmd_p = ((MMD*)oldp)-1;
 
     if (old_mmd_p->size >= MMAP_THRESH) {
@@ -248,6 +261,7 @@ void* srealloc(void* oldp, size_t size) {
             return nullptr;
         memcpy(new_adress_p, oldp, old_mmd_p->size);
         old_mmd_p->is_free = true;
+        return new_adress_p;
     }
 }
 

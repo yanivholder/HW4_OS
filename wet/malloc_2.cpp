@@ -83,6 +83,9 @@ void* srealloc(void* oldp, size_t size) {
     if (size == 0 || size > MAX_SIZE)
         return nullptr;
 
+    if (oldp == nullptr)
+        return smalloc(size);
+
     MMD* old_mmd_p = &((MMD*)oldp)[-1];
     if (old_mmd_p->size >= size)
         return oldp;
@@ -90,6 +93,7 @@ void* srealloc(void* oldp, size_t size) {
     void* new_adress_p = smalloc(size);
     memcpy(new_adress_p, oldp, old_mmd_p->size);
     old_mmd_p->is_free = true;
+    return new_adress_p;
 }
 
 size_t _num_free_blocks() {
