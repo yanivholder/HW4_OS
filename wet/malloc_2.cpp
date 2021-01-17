@@ -77,9 +77,6 @@ void sfree(void* p) {
         return;
 
     mmd_p->is_free = true;
-//    mmd_p->prev = head_p;
-//    mmd_p->next = head_p->next;
-//    head_p->next = mmd_p;
 }
 
 void* srealloc(void* oldp, size_t size) {

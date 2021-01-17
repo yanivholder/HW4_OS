@@ -1,6 +1,7 @@
 #include <cmath>
 #include <unistd.h>
 #include <cstring>
+#include <cassert>
 
 #define MAX_SIZE pow(10, 8)
 #define MIN_DATA_SIZE 128
@@ -58,19 +59,28 @@ void* smalloc(size_t size) {
         return (void*)(&first_available[1]); // skip meta data and give user the data pointer
     }
     else { // 'first_available' wasn't really available, simply last in linked list
-        void* meta_address = sbrk(sizeof(MMD));
-        if (meta_address == (void*)(-1))
-            return nullptr;
-        void* data_address = sbrk(size);
-        if (data_address == (void*)(-1)) {
-            sbrk(-sizeof(MMD)); // cancel prev brk
-            return nullptr;
+        if (first_available->is_free) {
+            assert(first_available->size < size);
+            if (sbrk(size - first_available->size) == (void*)(-1))
+                return nullptr;
+            first_available->size = size;
+            return (void*)(&first_available[1]);
         }
+        else {
+            void* meta_address = sbrk(sizeof(MMD));
+            if (meta_address == (void*)(-1))
+                return nullptr;
+            void* data_address = sbrk(size);
+            if (data_address == (void*)(-1)) {
+                sbrk(-sizeof(MMD)); // cancel prev brk
+                return nullptr;
+            }
 
-        MMD* last_in_old_list = first_available; // the var's meaning changed, this is just to make code clear
-        *((MMD*)meta_address) = MMD{size, false, nullptr, last_in_old_list}; //first available was just the last in linked list
-        last_in_old_list->next = (MMD*)meta_address;
-        return data_address;
+            MMD* last_in_old_list = first_available; // the var's meaning changed, this is just to make code clear
+            *((MMD*)meta_address) = MMD{size, false, nullptr, last_in_old_list}; //first available was just the last in linked list
+            last_in_old_list->next = (MMD*)meta_address;
+            return data_address;
+        }
     }
 }
 
@@ -83,6 +93,19 @@ void* scalloc(size_t num, size_t size){
     return address;
 }
 
+void _sfree_adjacents(MMD* mmd_p) {
+    if (mmd_p->next->is_free) {
+        mmd_p->size += sizeof(MMD) + mmd_p->next->size;
+        mmd_p->next = mmd_p->next->next;
+        mmd_p->next->prev = mmd_p; // mmd_p->next is already the one after the original next
+    }
+    if (mmd_p->prev->is_free) {
+        mmd_p->prev->size += sizeof(MMD) + mmd_p->size;
+        mmd_p->prev->next = mmd_p->next;
+        mmd_p->next->prev = mmd_p->prev;
+    }
+}
+
 void sfree(void* p) {
     if (p == nullptr)
         return;
@@ -92,9 +115,7 @@ void sfree(void* p) {
         return;
 
     mmd_p->is_free = true;
-//    mmd_p->prev = head_p;
-//    mmd_p->next = head_p->next;
-//    head_p->next = mmd_p;
+    _sfree_adjacents(mmd_p);
 }
 
 void* srealloc(void* oldp, size_t size) {
