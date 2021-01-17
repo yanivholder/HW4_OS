@@ -2,9 +2,14 @@
 #include <unistd.h>
 #include <cstring>
 #include <cassert>
+#include <sys/mman.h>
+#include <errno.h>
+#include <stdio.h>
+
 
 #define MAX_SIZE pow(10, 8)
 #define MIN_DATA_SIZE 128
+#define MMAP_THRESH 131072 // == pow(2, 17) == 128kb
 
 
 typedef struct MallocMetaData {
@@ -16,6 +21,9 @@ typedef struct MallocMetaData {
 
 MMD head = {0, false, nullptr, nullptr};
 MMD* head_p = &head;
+
+MMD mmap_head = {0, false, nullptr, nullptr};
+MMD* mmap_head_p = &mmap_head;
 
 static MMD* find_first_available(size_t size, bool* really_available) {
     MMD* curr = head_p;
@@ -37,8 +45,8 @@ void split_if_big_enough(MMD* old_big_block, size_t size){ // challenge 1 soluti
     if (old_big_block->size < size + MIN_DATA_SIZE + sizeof(MMD))
         return;
 
-    MMD splitter = {old_big_block->size - size - sizeof(MMD), true, old_big_block->next, old_big_block};
     MMD* splitter_address = (MMD*)((char*)old_big_block + sizeof(MMD) + size);
+    MMD splitter = {old_big_block->size - size - sizeof(MMD), true, old_big_block->next, old_big_block};
     *splitter_address = splitter;
 
     old_big_block->next = splitter_address;
@@ -46,17 +54,32 @@ void split_if_big_enough(MMD* old_big_block, size_t size){ // challenge 1 soluti
 
 }
 
+bool is_mmap_allocated(MMD* meta){
+    return meta->size > MMAP_THRESH;
+}
 
-void* smalloc(size_t size) {
-    if(size == 0 || size > MAX_SIZE){
-        return nullptr;
+MMD* last_in_list(MMD* list_head){
+    MMD* curr = list_head;
+    while (curr->next != nullptr) {
+        curr = curr->next;
     }
+    return curr;
+}
+
+void mmap_list_append(void* meta_address, size_t size){
+    MMD* last = last_in_list(mmap_head_p);
+    MMD* new_node_address = ((MMD*)meta_address);
+    *new_node_address = MMD{size, false, nullptr, last};
+    last->next = new_node_address;
+}
+
+void* smalloc_helper_sbrk(size_t size){
     bool really_available = false;
     MMD* first_available = find_first_available(size, &really_available);
     if (really_available){
         split_if_big_enough(first_available, size); // challenge 1 solution
         first_available->is_free = false;
-        return (void*)(&first_available[1]); // skip meta data and give user the data pointer
+        return (void*)(first_available+1); // skip meta data and give user the data pointer
     }
     else { // 'first_available' wasn't really available, simply last in linked list
         if (first_available->is_free) {
@@ -64,7 +87,7 @@ void* smalloc(size_t size) {
             if (sbrk(size - first_available->size) == (void*)(-1))
                 return nullptr;
             first_available->size = size;
-            return (void*)(&first_available[1]);
+            return (void*)(first_available+1);
         }
         else {
             void* meta_address = sbrk(sizeof(MMD));
@@ -75,13 +98,35 @@ void* smalloc(size_t size) {
                 sbrk(-sizeof(MMD)); // cancel prev brk
                 return nullptr;
             }
-
             MMD* last_in_old_list = first_available; // the var's meaning changed, this is just to make code clear
             *((MMD*)meta_address) = MMD{size, false, nullptr, last_in_old_list}; //first available was just the last in linked list
             last_in_old_list->next = (MMD*)meta_address;
             return data_address;
         }
     }
+}
+
+void* smalloc_helper_mmap(size_t size){
+    void* meta_address = mmap(nullptr, size + sizeof(MMD),  PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0);
+    if (meta_address == (void*)(-1))
+        return nullptr;
+    mmap_list_append(meta_address, size);
+    void* data_address = (void*)((MMD*)meta_address + 1);
+    return data_address;
+
+}
+
+void* smalloc(size_t size) {
+    if(size == 0 || size > MAX_SIZE){
+        return nullptr;
+    }
+    if (size < MMAP_THRESH){
+        return smalloc_helper_sbrk(size);
+    }
+    else{
+        return smalloc_helper_mmap(size);
+    }
+
 }
 
 void* scalloc(size_t num, size_t size){
@@ -106,6 +151,15 @@ void _sfree_adjacents(MMD* mmd_p) {
     }
 }
 
+static void remove_from_list(MMD* list_obj) {
+    MMD *next = list_obj->next;
+    MMD *prev = list_obj->prev;
+
+    prev->next = next;
+    if (next!= nullptr)
+        next->prev = prev;
+}
+
 void sfree(void* p) {
     if (p == nullptr)
         return;
@@ -114,8 +168,19 @@ void sfree(void* p) {
     if (mmd_p->is_free)
         return;
 
-    mmd_p->is_free = true;
-    _sfree_adjacents(mmd_p);
+    if(mmd_p->size < MMAP_THRESH){
+        mmd_p->is_free = true;
+        _sfree_adjacents(mmd_p);
+    }
+    else{
+        remove_from_list(mmd_p);
+        size_t mapped_size = mmd_p->size+ sizeof(MMD);
+        if (munmap(mmd_p, mapped_size) == -1){
+            perror("munmap");
+            _exit(1);
+        }
+    }
+
 }
 
 void* srealloc(void* oldp, size_t size) {
@@ -155,19 +220,22 @@ size_t _num_free_bytes() {
     return counter;
 }
 
-size_t _num_allocated_blocks() {
-    MMD* current = head_p->next;
+static size_t mmd_list_len_by_head(MMD* list_head){
+    MMD* current = list_head;
     size_t counter = 0;
-
-    while (current != nullptr) {
+    while (current->next != nullptr) {
         counter++;
         current = current->next;
     }
     return counter;
 }
 
-size_t _num_allocated_bytes() {
-    MMD* current = head_p->next;
+size_t _num_allocated_blocks() {
+    return mmd_list_len_by_head(head_p) + mmd_list_len_by_head(mmap_head_p);
+}
+
+static size_t mmd_list_allocated_bytes(MMD* list_head){
+    MMD* current = list_head->next;
     size_t counter = 0;
 
     while (current != nullptr) {
@@ -175,6 +243,10 @@ size_t _num_allocated_bytes() {
         current = current->next;
     }
     return counter;
+}
+
+size_t _num_allocated_bytes() {
+    return mmd_list_allocated_bytes(head_p) + mmd_list_allocated_bytes(mmap_head_p);
 }
 
 size_t _num_meta_data_bytes() {
