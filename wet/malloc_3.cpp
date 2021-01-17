@@ -3,6 +3,7 @@
 #include <cstring>
 
 #define MAX_SIZE pow(10, 8)
+#define MIN_DATA_SIZE 128
 
 
 typedef struct MallocMetaData {
@@ -31,6 +32,19 @@ static MMD* find_first_available(size_t size, bool* really_available) {
     return curr; //means we did not find available space, return value is last node in list
 }
 
+void split_if_big_enough(MMD* old_big_block, size_t size){ // challenge 1 solution
+    if (old_big_block->size < size + MIN_DATA_SIZE + sizeof(MMD))
+        return;
+
+    MMD splitter = {old_big_block->size - size - sizeof(MMD), true, old_big_block->next, old_big_block};
+    MMD* splitter_address = (MMD*)((char*)old_big_block + sizeof(MMD) + size);
+    *splitter_address = splitter;
+
+    old_big_block->next = splitter_address;
+    old_big_block->size = size;
+
+}
+
 
 void* smalloc(size_t size) {
     if(size == 0 || size > MAX_SIZE){
@@ -39,6 +53,7 @@ void* smalloc(size_t size) {
     bool really_available = false;
     MMD* first_available = find_first_available(size, &really_available);
     if (really_available){
+        split_if_big_enough(first_available, size); // challenge 1 solution
         first_available->is_free = false;
         return (void*)(&first_available[1]); // skip meta data and give user the data pointer
     }
