@@ -1,11 +1,10 @@
-//
-// Created by eilon on 17/01/2021.
-//
 #include <iostream>
-#include <string.h>
-#include <math.h>
-#define MAX_SIZE pow(10, 8)
+#include <cmath>
 #include <unistd.h>
+#include <cstring>
+
+#define MAX_SIZE pow(10, 8)
+
 
 typedef struct MallocMetaData {
     size_t size;
@@ -69,14 +68,85 @@ void* scalloc(size_t num, size_t size){
     return address;
 }
 
+void sfree(void* p) {
+    if (p == nullptr)
+        return;
 
+    MMD* p_MMD = (MMD*)p;
+    MMD* mmd_p = &p_MMD[-1];
+    if (mmd_p->is_free)
+        return;
 
+    mmd_p->is_free = true;
+    mmd_p->prev = head_p;
+    mmd_p->next = head_p->next;
+    head_p->next = mmd_p;
+}
 
+void* srealloc(void* oldp, size_t size) {
+    if (size == 0 || size > MAX_SIZE)
+        return nullptr;
 
+    MMD* oldp_MMD = (MMD*)oldp;
+    MMD* old_mmd_p = &oldp_MMD[-1];
+    if (old_mmd_p->size > size)
+        return oldp;
 
+    void* new_adress_p = smalloc(size);
+    memcpy(new_adress_p, oldp, old_mmd_p->size);
+    sfree(oldp);
+}
 
+size_t _num_free_blocks() {
+    MMD* current = head_p->next;
+    size_t counter = 0;
 
+    while (current != nullptr) {
+        if (current->is_free)
+            counter++;
+        current = current->next;
+    }
+    return counter;
+}
 
+size_t _num_free_bytes() {
+    MMD* current = head_p->next;
+    size_t counter = 0;
 
+    while (current != nullptr) {
+        if (current->is_free)
+            counter += current->size;
+        current = current->next;
+    }
+    return counter;
+}
 
+size_t _num_allocated_blocks() {
+    MMD* current = head_p->next;
+    size_t counter = 0;
 
+    while (current != nullptr) {
+        counter++;
+        current = current->next;
+    }
+    return counter;
+}
+
+size_t _num_allocated_bytes() {
+    MMD* current = head_p->next;
+    size_t counter = 0;
+
+    while (current != nullptr) {
+        counter += current->size;
+        current = current->next;
+    }
+    return counter;
+}
+
+size_t _num_meta_data_bytes() {
+    return _num_allocated_blocks() * sizeof(MMD);
+}
+
+size_t _size_meta_data() {
+    return sizeof(MMD);
+}

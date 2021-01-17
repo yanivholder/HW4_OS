@@ -8,4 +8,5 @@
 
 void* smalloc(size_t size);
 
-#endif //HW4_MALLOC_1_H
+
+#endif //HEADERS_H

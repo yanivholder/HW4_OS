@@ -1,10 +1,7 @@
-//
-// Created by eilon on 13/01/2021.
-//
-#include <iostream>
-#include <math.h>
-#define MAX_SIZE pow(10, 8)
+#include <cmath>
 #include <unistd.h>
+
+#define MAX_SIZE pow(10, 8)
 
 //void* smalloc(size_t size)
 //● Tries to allocate ‘size’ bytes.
@@ -28,4 +25,4 @@ void* smalloc(size_t size){
     }
 }
 
-//maybe keep vector of freed spaces by start and length and when alocating try to use those
+//maybe keep vector of freed spaces by start and length and when allocating try to use those
