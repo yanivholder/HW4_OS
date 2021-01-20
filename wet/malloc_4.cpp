@@ -30,11 +30,12 @@ MMD* sbrk_head_p = &sbrk_head;
 
 void align_size(size_t* size) {
     if (*size % 8 != 0)
-        *size = *size + (*size % 8);
+        *size = *size + 8 - (*size % 8);
 }
 
 static MMD* find_first_available(size_t size, bool* really_available) {
-    MMD* curr = sbrk_head_p;
+    assert(size % 8 == 0);
+	MMD* curr = sbrk_head_p;
     while (curr->next != nullptr) {
         curr = curr->next;
         if (curr->is_free == false)
@@ -50,7 +51,7 @@ static MMD* find_first_available(size_t size, bool* really_available) {
 }
 
 void split_if_big_enough(MMD* old_big_block, size_t size){ // challenge 1 solution
-    align_size(&size);
+    assert(size % 8 == 0);
     if (old_big_block->size < size + MIN_DATA_SIZE + sizeof(MMD))
         return;
 
@@ -151,6 +152,7 @@ void sfree(void* p) {
 }
 
 MMD* _srealloc_merge(MMD* old_mmd_p, size_t size, void* res) {
+	assert(size % 8 == 0);
     if (old_mmd_p->prev->is_free && old_mmd_p->size + old_mmd_p->prev->size > size) {
         return _sfree_adjacents_prev(old_mmd_p);
     }
