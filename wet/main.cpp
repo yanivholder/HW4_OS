@@ -1,13 +1,14 @@
 #include <iostream>
-#include "malloc_3.h"
+#include "malloc_4.h"
 
 
 int main() {
     std::cout << "Hello, World!" << std::endl;
 
-    void* v1 = smalloc(10);
-    void* v2 = smalloc(20);
-    void* v3 = smalloc(30);
+    void* v1 = smalloc(100);
+    void* v2 = smalloc(200);
+    void* v3 = smalloc(300);
+    srealloc(v3, 20);
 
     sfree(v2);
     void* v4 = smalloc(5);

@@ -56,7 +56,7 @@ void split_if_big_enough(MMD* old_big_block, size_t size){ // challenge 1 soluti
 }
 
 bool is_mmap_allocated(MMD* meta){
-    return meta->size > MMAP_THRESH;
+    return meta->size >= MMAP_THRESH;
 }
 
 MMD* last_in_list(MMD* list_head){
@@ -205,23 +205,23 @@ void sfree(void* p) {
 
 }
 
-MMD* _srealloc_merge(MMD* old_mmd_p, size_t size, bool* merge_big_enough) {
-    if (old_mmd_p->prev != nullptr && old_mmd_p->prev->is_free && old_mmd_p->size + old_mmd_p->prev->size > size) {
+MMD* _srealloc_merge(MMD* old_mmd_p, size_t size) {
+    if (old_mmd_p->prev != nullptr && old_mmd_p->prev->is_free && old_mmd_p->size + old_mmd_p->prev->size + sizeof(MMD) >= size) {
         return _sfree_adjacents_prev(old_mmd_p);
     }
     else {
-        if (old_mmd_p->next != nullptr && old_mmd_p->next->is_free && old_mmd_p->size + old_mmd_p->next->size > size) {
+        if (old_mmd_p->next != nullptr && old_mmd_p->next->is_free && old_mmd_p->size + old_mmd_p->next->size  + sizeof(MMD) >= size) {
             return _sfree_adjacents_next(old_mmd_p);
         }
         else {
-            // TODO check if always happen
-            MMD* merged_mmd_p = _sfree_adjacents_prev(_sfree_adjacents_next(old_mmd_p));
-            if (merged_mmd_p->size < size) {
-                *merge_big_enough = false;
+            if (old_mmd_p->prev != nullptr && old_mmd_p->next != nullptr
+            && old_mmd_p->prev->is_free && old_mmd_p->next->is_free
+            && old_mmd_p->size + old_mmd_p->prev->size + old_mmd_p->next->size  + 2 * sizeof(MMD) >= size) {
+                return _sfree_adjacents_prev(_sfree_adjacents_next(old_mmd_p));
             }
-            return merged_mmd_p;
         }
     }
+    return nullptr;
 }
 
 void* srealloc(void* oldp, size_t size) {
@@ -249,22 +249,25 @@ void* srealloc(void* oldp, size_t size) {
             return oldp;
         }
 
-        bool merge_big_enough = true;
-        MMD* merged_mmd_p = _srealloc_merge(old_mmd_p, size, &merge_big_enough);
-        if (merge_big_enough) {
+        MMD* merged_mmd_p = _srealloc_merge(old_mmd_p, size);
+        if (merged_mmd_p != nullptr) {
             memcpy(merged_mmd_p+1, oldp, old_mmd_p->size);
             merged_mmd_p->is_free = false;
             split_if_big_enough(merged_mmd_p, size);
             return (void*)(merged_mmd_p+1);
         }
-        else
-            merged_mmd_p->is_free = true;
 
-        void* new_adress_p = smalloc(size);
-        if (new_adress_p == nullptr)
-            return nullptr;
-        memcpy(new_adress_p, oldp, old_mmd_p->size);
         old_mmd_p->is_free = true;
+        void* new_adress_p = smalloc(size);
+        old_mmd_p->is_free = false;
+
+        if (new_adress_p == nullptr){
+            return nullptr;
+        }
+        if (oldp != new_adress_p){
+            memcpy(new_adress_p, oldp, old_mmd_p->size);
+            sfree(oldp);
+        }
         return new_adress_p;
     }
 }
